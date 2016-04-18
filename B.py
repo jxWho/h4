@@ -16,18 +16,18 @@ class BerkeleyAligner():
         LOWER_PROB = 1.0e-12
         best_alignment = []
 
-        words = align_set.words
-        mots = align_set.mots
-        m_len = len(align_set.mots)
+        words = align_sent.words
+        mots = align_sent.mots
+        m_len = len(align_sent.mots)
         w_len = len(align_sent.words)
 
         for i, w in enumerate(words):
             maxAlignProb = (self.t[(w, None)] * self.q[(0, i+1, w_len, m_len)], None)
             for j, m in enumerate(mots):
-                maxAlignProb = max(maxAlignProb, (self.t[(w, m)]*self.q[(j+1, i+1, total_w, total_m)], j) )
+                maxAlignProb = max(maxAlignProb, (self.t[(w, m)]*self.q[(j+1, i+1, w_len, m_len)], j) )
 
-            if maxLaignProb[1] is not None:
-                best_alignment.append((i, maxLaignProb[1]))
+            if maxAlignProb[1] is not None:
+                best_alignment.append((i, maxAlignProb[1]))
 
 
         return AlignedSent(words, mots, best_alignment)
@@ -75,8 +75,8 @@ class BerkeleyAligner():
 
         # Iteration for EM
         for _ in range(num_iters):
-            w_cnt = default(float)
-            m_cnt = default(float)
+            w_cnt = defaultdict(float)
+            m_cnt = defaultdict(float)
 
             c_ef = defaultdict(lambda: 0.0)
             c_e = defaultdict(lambda: 0.0)
@@ -145,7 +145,7 @@ class BerkeleyAligner():
             # update parameters
             for w in words:
                 for m in mots:
-                    temp = c_ef[(e, f)]
+                    temp = c_ef[(w, m)]
                     if temp > 0 and c_e[m] != 0:
                         t[(w, m)] = temp * 1.0 / c_e[m]
                     if temp > 0 and c_f[w] != 0:
@@ -159,7 +159,7 @@ class BerkeleyAligner():
 
                 for j in range(m_len+1):
                     for i in range(w_len+1):
-                        temp = f_jilm[(j, i, w_len, m_len)]
+                        temp = c_jilm[(j, i, w_len, m_len)]
                         if temp > 0 and c_ilm_w[(i, w_len, m_len)] != 0:
                             q[(j, i, w_len, m_len)] = temp * 1.0 / c_ilm_w[(i, w_len, m_len)]
                         if temp > 0 and c_ilm_m[(j, w_len, m_len)] != 0:
