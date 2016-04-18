@@ -1,7 +1,9 @@
 import nltk
-import A
 from collections import defaultdict
+from nltk.align import AlignedSent
+from nltk.align import Alignment
 import math
+import A
 
 class BerkeleyAligner():
 
@@ -11,15 +13,32 @@ class BerkeleyAligner():
     # TODO: Computes the alignments for align_sent, using this model's parameters. Return
     #       an AlignedSent object, with the sentence pair and the alignments computed.
     def align(self, align_sent):
-        pass
+        LOWER_PROB = 1.0e-12
+        best_alignment = []
+
+        words = align_set.words
+        mots = align_set.mots
+        m_len = len(align_set.mots)
+        w_len = len(align_sent.words)
+
+        for i, w in enumerate(words):
+            maxAlignProb = (self.t[(w, None)] * self.q[(0, i+1, w_len, m_len)], None)
+            for j, m in enumerate(mots):
+                maxAlignProb = max(maxAlignProb, (self.t[(w, m)]*self.q[(j+1, i+1, total_w, total_m)], j) )
+
+            if maxLaignProb[1] is not None:
+                best_alignment.append((i, maxLaignProb[1]))
+
+
+        return AlignedSent(words, mots, best_alignment)
+
+
 
     # TODO: Implement the EM algorithm. num_iters is the number of iterations. Returns the 
     # translation and distortion parameters as a tuple.
     def train(self, aligned_sents, num_iters):
         t = {}
         q = {}
-
-        DE_PROB = 1.0e-12
         # words -> mots
         t = defaultdict(lambda: 0.0)
         q = defaultdict(lambda: 0.0)
@@ -36,9 +55,9 @@ class BerkeleyAligner():
             word_length = len(s.words)
             mot_length = len(s.mots)
 
-            for i in range(word_length + 1):
-                for j in range(mot_length+1):
-                    q[(j, i, mot_length, word_length)] = 1.0 / (mot_length + 1)
+            for j in range(word_length + 1):
+                for i in range(mot_length+1):
+                    q[(i, j, word_length, mot_length)] = 1.0 / (mot_length + 1)
                     qr[(i, j, word_length, mot_length)] = 1.0 / (word_length + 1)
         word_cnt = len(words)
         mot_cnt = len(mots)
@@ -47,75 +66,104 @@ class BerkeleyAligner():
             for w in s.words:
                 for m in s.mots:
                     t[(w, m)] = 1.0 / (word_cnt + 1.0)
-                    tr[(m, w)] = 1.0 / (mot_cnt + 1.0)
+                    tr[(w, m)] = 1.0 / (mot_cnt + 1.0)
         # the None combination
         for word in words:
             t[(word, None)] = 1.0 / (word_cnt + 1.0)
         for word in mots:
-            tr[(word, None)] = 1.0 / (mot_cnt + 1.0)
+            tr[(None, word)] = 1.0 / (mot_cnt + 1.0)
 
         # Iteration for EM
         for _ in range(num_iters):
+            w_cnt = default(float)
+            m_cnt = default(float)
+
             c_ef = defaultdict(lambda: 0.0)
             c_e = defaultdict(lambda: 0.0)
+            c_f = defaultdict(lambda: 0.0)
             c_jilm = defaultdict(lambda: 0.0)
-            c_ilm = defaultdict(lambda: 0.0)
-
-            c_ef2 = defaultdict(lambda: 0.0)
-            c_e2 = defaultdict(lambda: 0.0)
-            c_jilm2 = defaultdict(lambda: 0.0)
-            c_ilm2 = defaultdict(lambda: 0.0)
+            c_ilm_w = defaultdict(lambda: 0.0)
+            c_ilm_m = defaultdict(lambda: 0.0)
 
             for s in aligned_sents:
-                total_cnt = defaultdict(float)
-                total_cnt2 = defaultdict(float)
-                m = len(s.words)
+                word_len = len(s.words)
                 # french
                 new_words = [None] + s.words
-                l = len(s.mots)
+                mot_len  = len(s.mots)
                 # English
                 new_mots = [None] + s.mots
 
             # normalization
                 # model words -> mots
-                for i in range(1, m + 1):
+                for i in range(1,  word_len + 1):
                     from_word = new_words[i]
-                    total_cnt[from_word] = 0
-                    for j in range(mot_length + 1):
+                    w_cnt[from_word] = 0
+                    for j in range(mot_len + 1):
                         to_word = new_mots[j]
-                        count = t[(from_word, to_word)] * q[(j,i,l,m)]
-                        total_cnt[from_word] += count
-
+                        count = t[(from_word, to_word)] * q[(j,i,word_len,mot_len)]
+                        w_cnt[from_word] += count
                 # model mots -> words
-                for i in range()
+                for j in range(1, mot_len + 1):
+                    from_word = new_mots[j]
+                    m_cnt[from_word] = 0
+                    for i in range(word_len + 1):
+                        to_word = new_words[i]
+                        count = tr[(to_word, from_word)] * qr[(j, i, word_len, mot_len)]
+                        m_cnt[from_word] += count
 
-            # collect counts
-                for i in range(1, m + 1):
-                    f = new_words[i]
-                    for j in range(0, l + 1):
-                        e = new_mots[j]
-                        temp = q[(j, i, l, m)] * t[(f, e)]
-                        temp /= total_cnt[f]
-                        c_ef[(e, f)] += temp
-                        c_e[e] += temp
-                        c_jilm[(j, i, l, m)] += temp
-                        c_ilm[(i, l, m)] += temp
+
+                for i in range(word_len + 1):
+                    w = new_words[i]
+                    for j in range(mot_len + 1):
+                        if i == 0 and j == 0:
+                            # no aligenment for (None, None)
+                            continue
+                        m = new_mots[j]
+                        if w_cnt[w] == 0:
+                            p1 = 0
+                        else:
+                            p1 = t[(w, m)] * q[(j, i, word_len, mot_len)]
+                            p1 /= w_cnt[w]
+
+                        if m_cnt[m] == 0:
+                            p2 = 0
+                        else:
+                            p2 = tr[(w, m)] * q[(j, i, word_len, mot_len)]
+                            p2 /= m_cnt[m]
+
+                        # take average
+                        p = math.sqrt(p1 * p2)
+
+                        c_ef[(w, m)] += p
+                        c_e[m] += p
+                        c_f[w] += p
+                        c_jilm[(j,i,word_len, mot_len)] += p
+                        c_ilm_w[(i, word_len, mot_len)] += p
+                        c_ilm_m[(j, word_len, mot_len)] += p
+
 
             # update parameters
-            for f in words:
-                for e in [None] + mots:
-                    temp = c_ef[(e, f)] / c_e[e]
-                    t[(e, f)] = max(temp, DE_PROB)
+            for w in words:
+                for m in mots:
+                    temp = c_ef[(e, f)]
+                    if temp > 0 and c_e[m] != 0:
+                        t[(w, m)] = temp * 1.0 / c_e[m]
+                    if temp > 0 and c_f[w] != 0:
+                        tr[(w, m)] = temp * 1.0 / c_f[w]
 
             for s in aligned_sents:
-                l = len(s.mots)
-                m = len(s.words)
-                for i in range(1, m+1):
-                    for j in range(l+1):
-                        temp = c_jilm[(j, i, l, m)] * 1.0 / (1.0 * c_ilm(i, l, m))
-                        q[(j, i, l, m)] = max(temp, DE_PROB)
+                words = [None] + s.words
+                w_len = len(words) - 1
+                mots = [None] + s.mots
+                m_len = len(mots) - 1
 
-
+                for j in range(m_len+1):
+                    for i in range(w_len+1):
+                        temp = f_jilm[(j, i, w_len, m_len)]
+                        if temp > 0 and c_ilm_w[(i, w_len, m_len)] != 0:
+                            q[(j, i, w_len, m_len)] = temp * 1.0 / c_ilm_w[(i, w_len, m_len)]
+                        if temp > 0 and c_ilm_m[(j, w_len, m_len)] != 0:
+                            qr[(j, i, w_len, m_len)] = temp * 1.0 / c_ilm_m[(j, w_len, m_len)]
 
         return (t,q)
 
