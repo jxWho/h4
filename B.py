@@ -4,6 +4,8 @@ from nltk.align import AlignedSent
 from nltk.align import Alignment
 import math
 import A
+from nltk.align import IBMModel1
+
 
 class BerkeleyAligner():
 
@@ -13,159 +15,244 @@ class BerkeleyAligner():
     # TODO: Computes the alignments for align_sent, using this model's parameters. Return
     #       an AlignedSent object, with the sentence pair and the alignments computed.
     def align(self, align_sent):
-        LOWER_PROB = 1.0e-12
+        MIN_PROB = 1.0e-12
         best_alignment = []
 
-        words = align_sent.words
-        mots = align_sent.mots
-        m_len = len(align_sent.mots)
-        w_len = len(align_sent.words)
+        l = len(align_sent.mots)
+        m = len(align_sent.words)
 
-        for i, w in enumerate(words):
-            maxAlignProb = (self.t[(w, None)] * self.q[(0, i+1, w_len, m_len)], None)
-            for j, m in enumerate(mots):
-                maxAlignProb = max(maxAlignProb, (self.t[(w, m)]*self.q[(j+1, i+1, w_len, m_len)], j) )
+        for j, trg_word in enumerate(align_sent.words):
+            # Initialize trg_word to align with the NULL token
+            best_prob = (self.t[trg_word][None] * self.q[0][j + 1][l][m])
+            best_prob = max(best_prob, MIN_PROB)
+            best_alignment_point = 0
+            for i, src_word in enumerate(align_sent.mots):
+                align_prob = (self.t[trg_word][src_word] * self.q[i + 1][j + 1][l][m])
+                if align_prob >= best_prob:
+                    best_prob = align_prob
+            best_alignment.append((j, best_alignment_point))
 
-            if maxAlignProb[1] is not None:
-                best_alignment.append((i, maxAlignProb[1]))
+        return AlignedSent(align_sent.words, align_sent.mots, Alignment(best_alignment))
 
 
-        return AlignedSent(words, mots, best_alignment)
-
-
-
-    # TODO: Implement the EM algorithm. num_iters is the number of iterations. Returns the 
+    # TODO: Implement the EM algorithm. num_iters is the number of iterations. Returns the
     # translation and distortion parameters as a tuple.
     def train(self, aligned_sents, num_iters):
+        MIN_PROB = 1.0e-12
         t = {}
         q = {}
-        # words -> mots
-        t = defaultdict(lambda: 0.0)
-        q = defaultdict(lambda: 0.0)
-        # mots -> words
-        tr = defaultdict(lambda: 0.0)
-        qr = defaultdict(lambda: 0.0)
+        t = defaultdict(
+            lambda: defaultdict(lambda: MIN_PROB))
+        q = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(
+                lambda: MIN_PROB))))
 
-        words = set()
-        mots = set()
-        # intialize q(i, j, l, m)
-        for s in aligned_sents:
-            words.update(s.words)
-            mots.update(s.mots)
-            word_length = len(s.words)
-            mot_length = len(s.mots)
+        #train model1: target --> source
+        src_vocab = set()
+        trg_vocab = set()
+        for aligned_sentence in aligned_sents:
+            trg_vocab.update(aligned_sentence.words)
+            src_vocab.update(aligned_sentence.mots)
+        # Add the NULL token
+        src_vocab.add(None)
 
-            for j in range(word_length + 1):
-                for i in range(mot_length+1):
-                    q[(i, j, word_length, mot_length)] = 1.0 / (mot_length + 1)
-                    qr[(i, j, word_length, mot_length)] = 1.0 / (word_length + 1)
-        word_cnt = len(words)
-        mot_cnt = len(mots)
-        # initialize t(e, f)
-        for s in aligned_sents:
-            for w in s.words:
-                for m in s.mots:
-                    t[(w, m)] = 1.0 / (word_cnt + 1.0)
-                    tr[(w, m)] = 1.0 / (mot_cnt + 1.0)
-        # the None combination
-        for word in words:
-            t[(word, None)] = 1.0 / (word_cnt + 1.0)
-        for word in mots:
-            tr[(None, word)] = 1.0 / (mot_cnt + 1.0)
+        translation_table1 = defaultdict(
+            lambda: defaultdict(lambda: MIN_PROB))
 
-        # Iteration for EM
-        for _ in range(num_iters):
-            w_cnt = defaultdict(float)
-            m_cnt = defaultdict(float)
+        alignment_table1 = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(
+                lambda: MIN_PROB))))
 
-            c_ef = defaultdict(lambda: 0.0)
-            c_e = defaultdict(lambda: 0.0)
-            c_f = defaultdict(lambda: 0.0)
-            c_jilm = defaultdict(lambda: 0.0)
-            c_ilm_w = defaultdict(lambda: 0.0)
-            c_ilm_m = defaultdict(lambda: 0.0)
+        # Initialize translation probability distribution
+        #initial_value = 1.0 / len(trg_vocab)
+        #for wt in trg_vocab:
+        #    for ws in src_vocab:
+        #        translation_table1[wt][ws] = initial_value
+        ibm1 = IBMModel1(aligned_sents, 6)
+        translation_table1 = ibm1.probabilities
 
-            for s in aligned_sents:
-                word_len = len(s.words)
-                # french
-                new_words = [None] + s.words
-                mot_len  = len(s.mots)
-                # English
-                new_mots = [None] + s.mots
-
-            # normalization
-                # model words -> mots
-                for i in range(1,  word_len + 1):
-                    from_word = new_words[i]
-                    w_cnt[from_word] = 0
-                    for j in range(mot_len + 1):
-                        to_word = new_mots[j]
-                        count = t[(from_word, to_word)] * q[(j,i,word_len,mot_len)]
-                        w_cnt[from_word] += count
-                # model mots -> words
-                for j in range(1, mot_len + 1):
-                    from_word = new_mots[j]
-                    m_cnt[from_word] = 0
-                    for i in range(word_len + 1):
-                        to_word = new_words[i]
-                        count = tr[(to_word, from_word)] * qr[(j, i, word_len, mot_len)]
-                        m_cnt[from_word] += count
+        # Initialize alignment probability distribution,
+        # a(i | j,l,m) = 1 / (l+1) for all i, j, l, m
+        for aligned_sentence in aligned_sents:
+            l = len(aligned_sentence.mots)
+            m = len(aligned_sentence.words)
+            initial_value = 1.0 / (l + 1)
+            #!!!
+            for i in range(l + 1):
+                for j in range(1, m + 1):
+                    alignment_table1[i][j][l][m] = initial_value
 
 
-                for i in range(word_len + 1):
-                    w = new_words[i]
-                    for j in range(mot_len + 1):
-                        if i == 0 and j == 0:
-                            # no aligenment for (None, None)
-                            continue
-                        m = new_mots[j]
-                        if w_cnt[w] == 0:
-                            p1 = 0
-                        else:
-                            p1 = t[(w, m)] * q[(j, i, word_len, mot_len)]
-                            p1 /= w_cnt[w]
+        for i in range(num_iters):
+            count_t_given_s1 = defaultdict(lambda: defaultdict(float))
+            count_any_t_given_s1 = defaultdict(float)
 
-                        if m_cnt[m] == 0:
-                            p2 = 0
-                        else:
-                            p2 = tr[(w, m)] * q[(j, i, word_len, mot_len)]
-                            p2 /= m_cnt[m]
+            # count of i given j, l, m
+            alignment_count1 = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(
+                    lambda: 0.0))))
+            alignment_count_for_any_i1 = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(
+                    lambda: 0.0)))
 
-                        # take average
-                        p = math.sqrt(p1 * p2)
+            for aligned_sentence in aligned_sents:
+                src_sentence = [None] + aligned_sentence.mots
+                trg_sentence = ['UNUSED'] + aligned_sentence.words  # 1-indexed
+                l = len(aligned_sentence.mots)
+                m = len(aligned_sentence.words)
+                total_count = defaultdict(float)
 
-                        c_ef[(w, m)] += p
-                        c_e[m] += p
-                        c_f[w] += p
-                        c_jilm[(j,i,word_len, mot_len)] += p
-                        c_ilm_w[(i, word_len, mot_len)] += p
-                        c_ilm_m[(j, word_len, mot_len)] += p
+                # E step (a): Compute normalization factors to weigh counts
+                for j in range(1, m + 1):
+                    wt = trg_sentence[j]
+                    total_count[wt] = 0
+                    for i in range(l + 1):
+                        ws = src_sentence[i]
+                        #print wt, translation_table1[wt][ws], alignment_table1[i][j][l][m]
+                        count = (translation_table1[wt][ws] * alignment_table1[i][j][l][m])
+                        total_count[wt] += count
+
+                # E step (b): Collect counts
+                for j in range(1, m + 1):
+                    wt = trg_sentence[j]
+                    for i in range(l + 1):
+                        ws = src_sentence[i]
+                        count = (translation_table1[wt][ws] * alignment_table1[i][j][l][m])
+                        #print total_count
+                        normalized_count = count / total_count[wt]
+
+                        count_t_given_s1[wt][ws] += normalized_count
+                        count_any_t_given_s1[ws] += normalized_count
+                        alignment_count1[i][j][l][m] += normalized_count
+                        alignment_count_for_any_i1[j][l][m] += normalized_count
+
+            # M step: Update probabilities with maximum likelihood estimates
+            for ws in src_vocab:
+                for wt in trg_vocab:
+                    estimate = count_t_given_s1[wt][ws] / count_any_t_given_s1[ws]
+                    translation_table1[wt][ws] = max(estimate, MIN_PROB)
+
+            for aligned_sentence in aligned_sents:
+                l = len(aligned_sentence.mots)
+                m = len(aligned_sentence.words)
+                for i in range(l + 1):
+                    for j in range(1, m + 1):
+                        estimate = (alignment_count1[i][j][l][m] / alignment_count_for_any_i1[j][l][m])
+                        alignment_table1[i][j][l][m] = max(estimate, MIN_PROB)
 
 
-            # update parameters
-            for w in words:
-                for m in mots:
-                    temp = c_ef[(w, m)]
-                    if temp > 0 and c_e[m] != 0:
-                        t[(w, m)] = temp * 1.0 / c_e[m]
-                    if temp > 0 and c_f[w] != 0:
-                        tr[(w, m)] = temp * 1.0 / c_f[w]
+        #train model2: source --> target
+        src_vocab = set()
+        trg_vocab = set()
+        for aligned_sentence in aligned_sents:
+            trg_vocab.update(aligned_sentence.mots)
+            src_vocab.update(aligned_sentence.words)
+        # Add the NULL token
+        src_vocab.add(None)
 
-            for s in aligned_sents:
-                words = [None] + s.words
-                w_len = len(words) - 1
-                mots = [None] + s.mots
-                m_len = len(mots) - 1
+        translation_table2 = defaultdict(
+            lambda: defaultdict(lambda: MIN_PROB))
 
-                for j in range(m_len+1):
-                    for i in range(w_len+1):
-                        temp = c_jilm[(j, i, w_len, m_len)]
-                        if temp > 0 and c_ilm_w[(i, w_len, m_len)] != 0:
-                            q[(j, i, w_len, m_len)] = temp * 1.0 / c_ilm_w[(i, w_len, m_len)]
-                        if temp > 0 and c_ilm_m[(j, w_len, m_len)] != 0:
-                            qr[(j, i, w_len, m_len)] = temp * 1.0 / c_ilm_m[(j, w_len, m_len)]
+        alignment_table2 = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(
+                lambda: MIN_PROB))))
 
+        # Initialize translation probability distribution
+        #initial_value = 1.0 / len(trg_vocab)
+        #for wt in trg_vocab:
+        #    for ws in src_vocab:
+        #        translation_table2[wt][ws] = initial_value
+        ibm1 = IBMModel1(aligned_sents, 6)
+        translation_table2 = ibm1.probabilities
+
+
+        # Initialize alignment probability distribution,
+        # a(i | j,l,m) = 1 / (l+1) for all i, j, l, m
+        for aligned_sentence in aligned_sents:
+            l = len(aligned_sentence.words)
+            m = len(aligned_sentence.mots)
+            initial_value = 1.0 / (l + 1)
+            #!!!
+            for i in range(l + 1):
+                for j in range(1, m + 1):
+                    alignment_table2[i][j][l][m] = initial_value
+
+
+        for i in range(num_iters):
+            count_t_given_s2 = defaultdict(lambda: defaultdict(float))
+            count_any_t_given_s2 = defaultdict(float)
+
+            # count of i given j, l, m
+            alignment_count2 = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(
+                    lambda: 0.0))))
+            alignment_count_for_any_i2 = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(
+                    lambda: 0.0)))
+
+            for aligned_sentence in aligned_sents:
+                src_sentence = [None] + aligned_sentence.words
+                trg_sentence = ['UNUSED'] + aligned_sentence.mots  # 1-indexed
+                l = len(aligned_sentence.words)
+                m = len(aligned_sentence.mots)
+                total_count = defaultdict(float)
+
+                # E step (a): Compute normalization factors to weigh counts
+                for j in range(1, m + 1):
+                    wt = trg_sentence[j]
+                    total_count[wt] = 0
+                    for i in range(l + 1):
+                        ws = src_sentence[i]
+                        count = (translation_table2[wt][ws] * alignment_table2[i][j][l][m])
+                        total_count[wt] += count
+
+                # E step (b): Collect counts
+                for j in range(1, m + 1):
+                    wt = trg_sentence[j]
+                    for i in range(l + 1):
+                        ws = src_sentence[i]
+                        count = (translation_table2[wt][ws] * alignment_table2[i][j][l][m])
+                        normalized_count = count / total_count[wt]
+
+                        count_t_given_s2[wt][ws] += normalized_count
+                        count_any_t_given_s2[ws] += normalized_count
+                        alignment_count2[i][j][l][m] += normalized_count
+                        alignment_count_for_any_i2[j][l][m] += normalized_count
+
+            # M step: Update probabilities with maximum likelihood estimates
+            for ws in src_vocab:
+                for wt in trg_vocab:
+                    #print count_any_t_given_s
+                    estimate = count_t_given_s2[wt][ws] / count_any_t_given_s2[ws]
+                    translation_table2[wt][ws] = max(estimate, MIN_PROB)
+
+            for aligned_sentence in aligned_sents:
+                l = len(aligned_sentence.words)
+                m = len(aligned_sentence.mots)
+                for i in range(l + 1):
+                    for j in range(1, m + 1):
+                        estimate = (alignment_count2[i][j][l][m] / alignment_count_for_any_i2[j][l][m])
+                        alignment_table2[i][j][l][m] = max(estimate, MIN_PROB)
+
+        # average two models
+        for ws in trg_vocab:
+            for wt in src_vocab:
+                #translation_table1[wt][ws]=translation_table1[wt][ws]*0.45+translation_table2[ws][wt]*0.55
+                translation_table1[wt][ws]=(count_t_given_s1[wt][ws]+count_t_given_s2[ws][wt])/ (count_any_t_given_s1[ws]+count_any_t_given_s2[wt])
+
+        for aligned_sentence in aligned_sents:
+            l = len(aligned_sentence.mots)
+            m = len(aligned_sentence.words)
+            for i in range(l + 1):
+                for j in range(1, m + 1):
+                    alignment_table1[i][j][l][m]=alignment_table1[i][j][l][m]*0.57+alignment_table2[j][i][m][l]*0.43
+                    #alignment_table1[i][j][l][m]=(alignment_count1[i][j][l][m]+alignment_count2[j][i][m][j])/(alignment_count_for_any_i1[j][l][m]+alignment_count_for_any_i2[i][m][l])
+
+        t = translation_table1
+        q = alignment_table1
         return (t,q)
+
+
 
 def main(aligned_sents):
     ba = BerkeleyAligner(aligned_sents, 10)
