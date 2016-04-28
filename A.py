@@ -25,10 +25,9 @@ def compute_avg_aer(aligned_sents, model, n):
 #       to file_name. Use the format specified in the assignment.
 def save_model_output(aligned_sents, model, file_name):
     path = file_name
-    #path = os.path.join(os.getcwd(), file_name)
     with open(path, "w") as f:
         for i in range(20):
-            x = aligned_sents[i]
+            x = model.align(aligned_sents[i])
             print >> f, x.words
             print >> f, x.mots
             print >> f, x.alignment
@@ -46,7 +45,7 @@ def main(aligned_sents):
     ibm2 = create_ibm2(aligned_sents)
     save_model_output(aligned_sents, ibm2, "ibm2.txt")
     avg_aer = compute_avg_aer(aligned_sents, ibm2, 50)
-    
+
     print ('IBM Model 2')
     print ('---------------------------')
     print('Average AER: {0:.3f}\n'.format(avg_aer))

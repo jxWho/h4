@@ -11,6 +11,7 @@ class BetterBerkeleyAligner():
         pass
 
     def train(self, aligned_sents, num_iters):
+        return None, None
         pass
 
 def main(aligned_sents):
